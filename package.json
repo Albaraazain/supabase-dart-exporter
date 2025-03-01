@@ -1,6 +1,6 @@
 {
   "name": "supabase-dart-exporter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI tool for exporting Supabase database schema to Dart models for Flutter applications",
   "main": "lib/exporter.js",
   "bin": {
