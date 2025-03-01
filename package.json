@@ -1,0 +1,59 @@
+{
+  "name": "supabase-dart-exporter",
+  "version": "1.0.0",
+  "description": "CLI tool for exporting Supabase database schema to Dart models for Flutter applications",
+  "main": "lib/exporter.js",
+  "bin": {
+    "supabase-dart-exporter": "./bin/db-export.js"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "chmod +x bin/db-export.js",
+    "prepare": "npm run build",
+    "postinstall": "node scripts/install-global.js",
+    "example:dart": "node examples/dart-export.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "supabase",
+    "database",
+    "export",
+    "cli",
+    "postgres",
+    "schema",
+    "dart",
+    "flutter"
+  ],
+  "author": "Voltzy Professional",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "dotenv": "^16.4.1",
+    "fs-extra": "^11.3.0",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "sql/",
+    "scripts/",
+    "examples/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voltzy/supabase-dart-exporter.git"
+  }
+}

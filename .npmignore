@@ -1,0 +1,37 @@
+# Development files
+.git
+.github
+.vscode
+.idea
+.DS_Store
+*.log
+*.tgz
+
+# Test files
+test/
+coverage/
+jest.config.js
+
+# Build artifacts
+node_modules/
+temp/
+tmp/
+
+# Documentation
+docs/
+examples/
+*.md
+!README.md
+
+# Configuration files
+.eslintrc*
+.prettierrc*
+.editorconfig
+tsconfig.json
+.travis.yml
+.gitlab-ci.yml
+.github/
+
+# Misc
+.env*
+.npmrc 
