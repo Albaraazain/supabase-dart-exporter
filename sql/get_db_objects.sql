@@ -1,4 +1,4 @@
--- Function to get all tables in the database
+-- Function to get all tables and views in the database
 CREATE OR REPLACE FUNCTION get_tables()
 RETURNS TABLE (
     table_name text,
@@ -13,10 +13,14 @@ BEGIN
         information_schema.tables t
     WHERE
         t.table_schema = 'public'
-        AND t.table_type = 'BASE TABLE'
+        AND (
+            t.table_type = 'BASE TABLE'
+            OR t.table_type = 'VIEW'
+        )
         AND t.table_name NOT LIKE 'pg_%'
         AND t.table_name NOT LIKE 'get_%'
     ORDER BY
+        t.table_type,  -- List tables before views
         t.table_name;
 END;
 $$ LANGUAGE plpgsql;
@@ -46,7 +50,13 @@ BEGIN
         pg_namespace n ON n.oid = p.pronamespace AND n.nspname = r.routine_schema
     WHERE
         r.routine_schema = 'public'
-        AND r.routine_name NOT LIKE 'get_%'
+        AND r.routine_type = 'FUNCTION'  -- Only include functions, not procedures
+        AND r.routine_name NOT IN (      -- Exclude system functions but keep user functions
+            'get_tables',
+            'get_table_info',
+            'get_table_indexes',
+            'get_enum_types'
+        )
     ORDER BY
         r.routine_name;
 END;
@@ -82,4 +92,28 @@ BEGIN
     ORDER BY
         t.trigger_name;
 END;
-$$ LANGUAGE plpgsql; 
+$$ LANGUAGE plpgsql;
+
+-- Function to get view definitions
+CREATE OR REPLACE FUNCTION get_view_definitions()
+RETURNS TABLE (
+    view_name text,
+    view_definition text
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        v.table_name::text,
+        pg_get_viewdef(c.oid, true)::text
+    FROM 
+        information_schema.views v
+    JOIN 
+        pg_class c ON c.relname = v.table_name
+    JOIN 
+        pg_namespace n ON n.oid = c.relnamespace AND n.nspname = v.table_schema
+    WHERE 
+        v.table_schema = 'public'
+    ORDER BY 
+        v.table_name;
+END;
+$$ LANGUAGE plpgsql;
