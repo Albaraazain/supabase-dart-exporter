@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2025-03-01
+
+### Added
+- Enhanced function export functionality with improved error handling
+- Support for database views as Dart models
+- Improved view handling with proper type mapping
+- Better documentation generation for view models
+
 ## [1.0.2] - 2025-03-01
 
 ### Fixed
