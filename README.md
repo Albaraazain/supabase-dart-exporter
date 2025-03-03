@@ -1,143 +1,222 @@
-# supabase-dart-exporter
+# Supabase Dart Exporter
 
-A powerful CLI tool for exporting Supabase database schemas to Dart models for Flutter applications, with additional SQL export capabilities.
+A powerful CLI tool for exporting Supabase database schema to Dart models for Flutter applications.
 
 ## Features
 
-- Export complete database schema (tables, types, functions, triggers)
-- Export table data as SQL insert statements
-- Generate Dart models from your database schema for Flutter applications
-- Configurable output directories
-- Verbose logging option
+- Export Supabase database schema to SQL files
+- Generate Dart models from database schema with freezed support
+- Support for all PostgreSQL constraints and types
+- Automatic documentation generation
 - Support for both local and remote Supabase instances
+- Full freezed integration with immutable models
+- Proper handling of default values and required fields
+- Enhanced enum support with JsonValue annotations
 
 ## Installation
 
+### Global Installation (Recommended)
 ```bash
 npm install -g supabase-dart-exporter
 ```
 
+### Project Installation
+```bash
+npm install --save-dev supabase-dart-exporter
+```
+
+### Flutter Project Setup
+
+Add these dependencies to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.9.0
+
+dev_dependencies:
+  build_runner: ^2.4.15
+  freezed: ^2.4.7
+  json_serializable: ^6.7.1
+```
+
 ## Configuration
 
-Create a `.env` file in your project root with the following variables:
+Create a `.env` file in your project root:
 
-```
-# For Supabase API access (optional if using DATABASE_URL)
-SUPABASE_URL=http://localhost:54321
-SUPABASE_SERVICE_KEY=your-service-key
+```env
+# For Supabase API access
+SUPABASE_URL=http://localhost:54321        # Your Supabase project URL
+SUPABASE_SERVICE_KEY=your-service-key      # Your service role key
 
-# For direct PostgreSQL connection (required for Dart export)
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+# For PostgreSQL direct connection (required for Dart export)
+DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres
 ```
 
 ## Usage
 
-### Basic Export
+### Basic Usage
 
-Export your database schema and data to SQL files:
-
+1. Export both SQL schema and Dart models (recommended):
 ```bash
 supabase-dart-exporter
 ```
+This will:
+- Export SQL schema to `./exported_database/`
+- Generate Dart models in `./lib/models/`
 
-By default, this will create an `exported_database` directory with SQL files.
-
-### Custom Output Directory
-
+2. Export SQL schema only:
 ```bash
-supabase-dart-exporter --output ./my-database-export
+supabase-dart-exporter --output ./my-schema
 ```
 
-### Export to Dart Models
-
+3. Generate Dart models only:
 ```bash
-supabase-dart-exporter --dart
+supabase-dart-exporter --dart --dart-output ./my-models
 ```
 
-This will generate Dart model classes in `exported_database/dart_models`.
-
-### Custom Dart Output Directory
+### Advanced Options
 
 ```bash
-supabase-dart-exporter --dart --dart-output ./my-dart-models
+Options:
+  -o, --output <dir>           Output directory for SQL exports (default: "./exported_database")
+  -e, --env <path>            Path to .env file (default: ".env")
+  -v, --verbose               Enable verbose logging
+  --url <url>                 Supabase project URL (overrides .env)
+  --key <key>                 Supabase service role key (overrides .env)
+  --schema-only              Export schema without data
+  --tables <tables>          Comma-separated list of tables to export
+  --install-functions        Install required database functions
+  --dart                     Export database schema to Dart models
+  --dart-output <dir>        Output directory for Dart models (default: "./lib/models")
+  --dart-no-docs            Disable documentation generation for Dart models
+  --dart-no-equality        Disable equality methods for Dart models
+  --connection-string <str>  PostgreSQL connection string (overrides .env)
 ```
 
-### Verbose Logging
+### Examples
 
+1. Export specific tables:
 ```bash
-supabase-dart-exporter --verbose
+supabase-dart-exporter --tables users,profiles,posts
 ```
 
-### Combining Options
-
+2. Custom output directories:
 ```bash
-supabase-dart-exporter --output ./my-database-export --dart --dart-output ./my-dart-models --verbose
+supabase-dart-exporter --output ./db/schema --dart --dart-output ./src/models
 ```
 
-## Dart Model Generation
+3. Minimal Dart models:
+```bash
+supabase-dart-exporter --dart --dart-no-docs --dart-no-equality
+```
 
-The generated Dart models include:
+4. Using with remote Supabase:
+```bash
+supabase-dart-exporter --url https://your-project.supabase.co --key your-service-key
+```
 
-- Class properties with appropriate types
-- Default constructor
-- Named constructor for JSON deserialization
-- `toJson()` method for serialization
-- `copyWith()` method for immutability
-- `toString()` method
-- Equality and hash code implementations
+## Generated Files
 
-Example generated model:
+### SQL Schema Export
+The tool generates SQL files in the output directory:
+- `02_tables.sql`: Table definitions with all constraints
 
+### Dart Models
+For each table, a corresponding Dart model is generated with:
+- Full freezed integration for immutable data classes
+- Proper nullability based on constraints
+- Smart handling of default values with @Default annotations
+- Enhanced enum support with @JsonValue annotations
+- Documentation of constraints and relationships
+- JSON serialization/deserialization
+- Automatic copyWith functionality
+- Deep equality comparison
+- toString implementation
+- Pattern matching support
+
+Example Dart model:
 ```dart
-import 'package:flutter/material.dart';
-import 'dart:core';
+/// Users model representing the users table in the database
+@freezed
+class Users with _$Users {
+  const factory Users({
+    /// Primary key
+    @JsonKey(name: 'user_id')
+    required String userId,
 
-/// Represents the users table in the database
-/// Auto-generated from database schema
-class Users {
-  final String? user_id;
-  final String? email;
-  final String? full_name;
-  // ... other fields
+    /// Foreign key reference to profiles(id)
+    @JsonKey(name: 'profile_id')
+    String? profileId,
 
-  Users({
-    this.user_id,
-    this.email,
-    this.full_name,
-    // ... other fields
-  });
+    /// Default: now()
+    @JsonKey(name: 'created_at')
+    @Default(DateTime.now()) DateTime createdAt,
 
-  factory Users.fromJson(Map<String, dynamic> json) {
-    return Users(
-      user_id: json['user_id'],
-      email: json['email'],
-      full_name: json['full_name'],
-      // ... other fields
-    );
-  }
+    /// User status with predefined values
+    @JsonKey(name: 'status')
+    UserStatusType status,
+  }) = _Users;
 
-  Map<String, dynamic> toJson() {
-    return {
-      'user_id': user_id,
-      'email': email,
-      'full_name': full_name,
-      // ... other fields
-    };
-  }
+  factory Users.fromJson(Map<String, dynamic> json) => 
+    _$UsersFromJson(json);
+}
 
-  // ... other methods
+enum UserStatusType {
+  @JsonValue('active')
+  active,
+  @JsonValue('inactive')
+  inactive,
 }
 ```
 
-## Requirements
+### After Generation
 
-- Node.js >= 18.0.0
-- For Dart export: PostgreSQL connection
+After generating the models, run:
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
+
+This will generate the necessary freezed and JSON serialization code.
+
+## Best Practices
+
+1. Always use version control and commit generated files
+2. Review generated models before using in production
+3. Keep your database schema clean and well-documented
+4. Use meaningful constraint names in your database
+5. Run the exporter whenever your schema changes
+6. Run build_runner after generating new models
+7. Take advantage of freezed's pattern matching features
+8. Use the generated copyWith methods for immutable updates
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Failed**
+   - Verify your Supabase URL and service key
+   - Check if your database is running
+   - Ensure your firewall allows the connection
+
+2. **Permission Denied**
+   - Verify your service role key has sufficient permissions
+   - Check database user permissions
+
+3. **Type Mapping Issues**
+   - Ensure custom types are properly defined
+   - Check for unsupported PostgreSQL types
+
+### Getting Help
+
+- Open an issue on GitHub
+- Check existing issues for solutions
+- Include verbose logs with your reports: `--verbose`
+
+## Contributing
+
+Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
 ## License
 
-MIT
-
-## Author
-
-Voltzy Professional 
+MIT License - see LICENSE file for details 
