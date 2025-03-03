@@ -1,159 +1,198 @@
--- First install the base functions
-CREATE OR REPLACE FUNCTION get_tables_base()
-RETURNS TABLE (
-    table_name text,
-    table_type text
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        t.table_name::text,
-        t.table_type::text
-    FROM
-        information_schema.tables t
-    WHERE
-        t.table_schema = 'public'
-        AND (
-            t.table_type = 'BASE TABLE'
-            OR t.table_type = 'VIEW'
-        )
-        AND t.table_name NOT LIKE 'pg_%'
-        AND t.table_name NOT LIKE 'get_%'
-    ORDER BY
-        t.table_type,
-        t.table_name;
-END;
-$$ LANGUAGE plpgsql;
+-- Drop existing functions
+DROP FUNCTION IF EXISTS exec_sql(text);
+DROP FUNCTION IF EXISTS get_table_constraints(text);
+DROP FUNCTION IF EXISTS get_column_definitions(text);
+DROP FUNCTION IF EXISTS get_types();
+DROP FUNCTION IF EXISTS get_functions();
+DROP FUNCTION IF EXISTS get_triggers();
 
-CREATE OR REPLACE FUNCTION get_db_functions_base()
-RETURNS TABLE (
-    routine_name text,
-    routine_definition text,
-    data_type text,
-    routine_body text,
-    external_language text
-) AS $$
+-- Function to execute SQL queries safely
+CREATE OR REPLACE FUNCTION exec_sql(sql_query text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
 BEGIN
-    RETURN QUERY
-    SELECT
-        r.routine_name::text,
-        pg_get_functiondef(p.oid)::text AS routine_definition,
-        r.data_type::text,
-        r.routine_body::text,
-        r.external_language::text
-    FROM
-        information_schema.routines r
-    JOIN
-        pg_proc p ON p.proname = r.routine_name
-    JOIN
-        pg_namespace n ON n.oid = p.pronamespace AND n.nspname = r.routine_schema
-    WHERE
-        r.routine_schema = 'public'
-        AND r.routine_type = 'FUNCTION'
-        AND r.routine_name NOT IN (
-            'get_tables',
-            'get_table_info',
-            'get_table_indexes',
-            'get_enum_types'
-        )
-    ORDER BY
-        r.routine_name;
+  IF sql_query IS NULL OR sql_query = '' THEN
+    RETURN '[]'::json;
+  END IF;
+  
+  EXECUTE format('SELECT json_agg(t) FROM (%s) AS t', sql_query) INTO result;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in exec_sql: %', SQLERRM;
+  RETURN json_build_object('error', SQLERRM);
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE OR REPLACE FUNCTION get_db_triggers_base()
-RETURNS TABLE (
-    trigger_name text,
-    event_object_table text,
-    action_timing text,
-    event_manipulation text,
-    trigger_definition text
-) AS $$
+-- Function to get table constraints
+CREATE OR REPLACE FUNCTION get_table_constraints(p_table_name text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
 BEGIN
-    RETURN QUERY
-    SELECT
-        t.trigger_name::text,
-        t.event_object_table::text,
-        t.action_timing::text,
-        t.event_manipulation::text,
-        pg_get_triggerdef(p.oid)::text AS trigger_definition
-    FROM
-        information_schema.triggers t
-    JOIN
-        pg_trigger p ON p.tgname = t.trigger_name
-    JOIN
-        pg_class c ON c.oid = p.tgrelid AND c.relname = t.event_object_table
-    JOIN
-        pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.trigger_schema
-    WHERE
-        t.trigger_schema = 'public'
-    ORDER BY
-        t.trigger_name;
-END;
-$$ LANGUAGE plpgsql;
+  IF p_table_name IS NULL OR p_table_name = '' THEN
+    RETURN '[]'::json;
+  END IF;
 
-CREATE OR REPLACE FUNCTION get_view_definitions_base()
-RETURNS TABLE (
-    view_name text,
-    view_definition text
-) AS $$
-BEGIN
-    RETURN QUERY
+  SELECT json_agg(t) INTO result
+  FROM (
     SELECT 
-        v.table_name::text,
-        pg_get_viewdef(c.oid, true)::text
-    FROM 
-        information_schema.views v
-    JOIN 
-        pg_class c ON c.relname = v.table_name
-    JOIN 
-        pg_namespace n ON n.oid = c.relnamespace AND n.nspname = v.table_schema
-    WHERE 
-        v.table_schema = 'public'
-    ORDER BY 
-        v.table_name;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create RPC endpoints
-CREATE OR REPLACE FUNCTION public.get_tables()
-RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-AS $$
-BEGIN
-  RETURN (SELECT jsonb_agg(t) FROM (SELECT * FROM get_tables_base()) t);
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.get_db_functions()
-RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-AS $$
-BEGIN
-  RETURN (SELECT jsonb_agg(f) FROM (SELECT * FROM get_db_functions_base()) f);
+      tc.constraint_name,
+      tc.constraint_type,
+      tc.table_name,
+      kcu.column_name,
+      ccu.table_name AS foreign_table_name,
+      ccu.column_name AS foreign_column_name,
+      cc.check_clause,
+      pgc.confupdtype,
+      pgc.confdeltype
+    FROM information_schema.table_constraints tc
+    LEFT JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+    LEFT JOIN information_schema.constraint_column_usage ccu
+      ON ccu.constraint_name = tc.constraint_name
+      AND ccu.table_schema = tc.table_schema
+    LEFT JOIN information_schema.check_constraints cc
+      ON cc.constraint_name = tc.constraint_name
+      AND cc.constraint_schema = tc.table_schema
+    LEFT JOIN pg_constraint pgc
+      ON pgc.conname = tc.constraint_name
+    WHERE tc.table_schema = 'public'
+      AND tc.table_name = p_table_name
+    ORDER BY tc.constraint_name
+  ) t;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in get_table_constraints: %', SQLERRM;
+  RETURN '[]'::json;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_db_triggers()
-RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+-- Function to get column definitions
+CREATE OR REPLACE FUNCTION get_column_definitions(p_table_name text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
+DECLARE
+  result json;
 BEGIN
-  RETURN (SELECT jsonb_agg(t) FROM (SELECT * FROM get_db_triggers_base()) t);
+  IF p_table_name IS NULL OR p_table_name = '' THEN
+    RETURN '[]'::json;
+  END IF;
+
+  SELECT json_agg(t) INTO result
+  FROM (
+    SELECT 
+      c.column_name,
+      c.column_default,
+      c.data_type,
+      c.character_maximum_length,
+      c.is_nullable,
+      c.numeric_precision,
+      c.numeric_scale
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND c.table_name = p_table_name
+    ORDER BY c.ordinal_position
+  ) AS t;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in get_column_definitions: %', SQLERRM;
+  RETURN '[]'::json;
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_view_definitions()
-RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+-- Function to get custom types
+CREATE OR REPLACE FUNCTION get_types()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
+DECLARE
+  result json;
 BEGIN
-  RETURN (SELECT jsonb_agg(v) FROM (SELECT * FROM get_view_definitions_base()) v);
+  SELECT json_agg(t) INTO result
+  FROM (
+    SELECT 
+      t.typname AS name,
+      array_agg(e.enumlabel ORDER BY e.enumsortorder) AS values
+    FROM pg_type t
+    JOIN pg_enum e ON t.oid = e.enumtypid
+    WHERE t.typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+    GROUP BY t.typname
+  ) AS t;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in get_types: %', SQLERRM;
+  RETURN '[]'::json;
 END;
 $$;
 
--- Grant access to the anon and authenticated roles
-GRANT EXECUTE ON FUNCTION public.get_tables() TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_db_functions() TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_db_triggers() TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_view_definitions() TO anon, authenticated;
+-- Function to get functions
+CREATE OR REPLACE FUNCTION get_functions()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
+BEGIN
+  SELECT json_agg(t) INTO result
+  FROM (
+    SELECT 
+      p.proname AS name,
+      pg_get_functiondef(p.oid) AS definition
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+  ) AS t;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in get_functions: %', SQLERRM;
+  RETURN '[]'::json;
+END;
+$$;
+
+-- Function to get triggers
+CREATE OR REPLACE FUNCTION get_triggers()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
+BEGIN
+  SELECT json_agg(t) INTO result
+  FROM (
+    SELECT 
+      t.tgname AS name,
+      c.relname AS table,
+      pg_get_triggerdef(t.oid) AS definition
+    FROM pg_trigger t
+    JOIN pg_class c ON t.tgrelid = c.oid
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE n.nspname = 'public'
+    AND t.tgisinternal = false
+  ) AS t;
+  RETURN COALESCE(result, '[]'::json);
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error in get_triggers: %', SQLERRM;
+  RETURN '[]'::json;
+END;
+$$;
+
+-- Grant execute permissions
+GRANT EXECUTE ON FUNCTION exec_sql(text) TO postgres;
+GRANT EXECUTE ON FUNCTION get_table_constraints(text) TO postgres;
+GRANT EXECUTE ON FUNCTION get_column_definitions(text) TO postgres;
+GRANT EXECUTE ON FUNCTION get_types() TO postgres;
+GRANT EXECUTE ON FUNCTION get_functions() TO postgres;
+GRANT EXECUTE ON FUNCTION get_triggers() TO postgres;
